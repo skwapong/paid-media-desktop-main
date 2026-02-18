@@ -1,0 +1,43 @@
+appId: com.treasuredata.paid-media-suite
+productName: Paid Media Suite
+copyright: Copyright 2025 Treasure Data
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - dist/**/*
+  - package.json
+  - node_modules/**/*
+
+extraMetadata:
+  main: dist/electron/main.js
+
+mac:
+  artifactName: "Paid-Media-Suite-${version}-mac.${ext}"
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  icon: resources/icon.icns
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.ico
+
+nsis:
+  artifactName: "${productName}-Setup-${version}-${arch}.${ext}"
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
