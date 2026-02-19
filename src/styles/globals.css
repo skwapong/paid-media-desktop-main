@@ -35,6 +35,9 @@
   --color-primary-800: #1e40af;
   --color-primary-900: #1e3a8a;
 
+  /* Font families */
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
   /* Custom border radius */
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -137,6 +140,15 @@
   h1, h2, h3, h4, h5, h6 {
     font-weight: 500;
   }
+}
+
+/* ============ Hide Scrollbar (keep scrollable) ============ */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
 /* ============ Custom Scrollbar ============ */

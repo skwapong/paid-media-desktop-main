@@ -6,7 +6,9 @@ import CampaignLandingPage from './components/campaign/CampaignLandingPage';
 import CampaignsPage from './pages/CampaignsPage';
 import CampaignDetailPage from './pages/CampaignDetailPage';
 import OptimizeDashboardPage from './pages/OptimizeDashboardPage';
+import UnifiedViewPage from './pages/UnifiedViewPage';
 import ReportsDashboardPage from './pages/ReportsDashboardPage';
+import ChatHistoryPage from './pages/ChatHistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import DebugPanel from './components/DebugPanel';
 
@@ -26,6 +28,8 @@ function App() {
             <Route element={<Layout />}>
               <Route path="/" element={<CampaignLandingPage />} />
               <Route path="/campaign-chat" element={<CampaignChatPage />} />
+              <Route path="/unified" element={<UnifiedViewPage />} />
+              <Route path="/chat-history" element={<ChatHistoryPage />} />
               <Route path="/campaigns" element={<CampaignsPage />} />
               <Route path="/campaigns/:id" element={<CampaignDetailPage />} />
               <Route path="/optimize" element={<OptimizeDashboardPage />} />
