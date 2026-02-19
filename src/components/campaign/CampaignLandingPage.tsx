@@ -103,6 +103,10 @@ function QuickPromptCarousel({ onSelect }: { onSelect: (prompt: string) => void 
       className="w-full mt-8"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
+      style={{
+        maskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)',
+        WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)',
+      }}
     >
       <div
         ref={scrollRef}
