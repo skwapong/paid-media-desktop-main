@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   DollarSign,
   ShoppingCart,
@@ -22,6 +22,11 @@ import {
   Zap,
   CheckCircle,
   RefreshCw,
+  MessageSquare,
+  Send,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   BarChart,
@@ -742,14 +747,197 @@ function OpportunityCard({
   );
 }
 
+// ─── Chat Panel ──────────────────────────────────────────────────────────────
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+const chatSuggestions = [
+  'How are my campaigns performing today?',
+  'Which channel should I scale next?',
+  'Why is my CPA increasing on Meta?',
+  'Recommend budget changes for this week',
+];
+
+function UnifiedChatPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      content: "Hi! I'm your Paid Media assistant. Ask me anything about your campaign performance, budget allocation, or optimization opportunities.",
+      timestamp: new Date(),
+    },
+  ]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [isOpen]);
+
+  const handleSend = (text?: string) => {
+    const messageText = text || input.trim();
+    if (!messageText) return;
+
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: messageText,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    setIsTyping(true);
+
+    // Simulated AI response
+    setTimeout(() => {
+      const responses: Record<string, string> = {
+        'How are my campaigns performing today?':
+          'Overall performance is solid. Total spend is at $48.2K with a blended ROAS of 3.4x. Meta campaigns are outperforming with 5.6x ROAS, while Google Search CPA has risen 12% this week. I\'d recommend reviewing your Google Search bid strategy.',
+        'Which channel should I scale next?':
+          'Based on current data, Meta is your strongest channel with 5.6x ROAS and room for budget increase. TikTok\'s Cart Recovery campaign is also showing promise at 4.2x ROAS. I\'d suggest allocating an additional $2-3K to Meta Lookalike audiences first.',
+        'Why is my CPA increasing on Meta?':
+          'Your Meta CPA has risen 8% over the past week primarily due to audience saturation in your prospecting campaigns. The "Back to Gym" ad set has hit 8.2x frequency. I\'d recommend refreshing creatives and expanding your lookalike audiences.',
+        'Recommend budget changes for this week':
+          'Here are my recommendations:\n\n1. **Increase** Meta Lookalike by $1,500 (strong ROAS trajectory)\n2. **Decrease** Google Search broad match by $800 (rising CPA)\n3. **Reallocate** $500 from YouTube brand awareness to TikTok Cart Recovery\n4. **Hold** LinkedIn campaigns steady (stable B2B performance)\n\nNet impact: estimated +12% ROAS improvement.',
+      };
+      const aiMsg: ChatMessage = {
+        id: `ai-${Date.now()}`,
+        role: 'assistant',
+        content:
+          responses[messageText] ||
+          `I've analyzed your question about "${messageText}". Based on your current campaign data, your overall performance is trending positively with a 3.4x blended ROAS. Would you like me to dive deeper into any specific channel or metric?`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+      setIsTyping(false);
+    }, 1500);
+  };
+
+  return (
+    <div
+      className={`shrink-0 flex flex-col bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border border-gray-100 overflow-hidden transition-all duration-300 ease-in-out ${
+        isOpen ? 'w-[380px] opacity-100' : 'w-0 opacity-0 border-0 p-0'
+      }`}
+    >
+      {isOpen && (
+        <>
+          {/* Header */}
+          <div className="shrink-0 px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-500 flex items-center justify-center">
+              <Bot className="w-4 h-4 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-900 m-0">AI Assistant</h3>
+              <span className="text-[10px] text-emerald-500 font-medium">Online</span>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors cursor-pointer border-none bg-transparent"
+            >
+              <ChevronLeft className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-sm'
+                      : 'bg-gray-50 text-gray-700 border border-gray-100 rounded-bl-sm'
+                  }`}
+                >
+                  {msg.content.split('\n').map((line, i) => (
+                    <p key={i} className="m-0 mb-1 last:mb-0" dangerouslySetInnerHTML={{
+                      __html: line
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="bg-gray-50 border border-gray-100 rounded-xl rounded-bl-sm px-4 py-3">
+                  <div className="flex gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Suggestions (only show when few messages) */}
+          {messages.length <= 1 && (
+            <div className="shrink-0 px-4 pb-2">
+              <div className="flex flex-wrap gap-1.5">
+                {chatSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => handleSend(suggestion)}
+                    className="text-[11px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer border-none font-medium"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="shrink-0 px-4 py-3 border-t border-gray-100">
+            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-100 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-50 transition-all">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                placeholder="Ask about your campaigns..."
+                className="flex-1 bg-transparent border-none outline-none text-[13px] text-gray-700 placeholder:text-gray-400"
+                disabled={isTyping}
+              />
+              <button
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isTyping}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 transition-colors cursor-pointer disabled:cursor-not-allowed border-none"
+              >
+                <Send className="w-3.5 h-3.5 text-white" />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function UnifiedViewDashboard() {
-  const [visibleOpportunities, setVisibleOpportunities] =
-    useState<Opportunity[]>(opportunities);
   const [activeTab, setActiveTab] = useState<'orchestration' | 'campaigns' | 'audience' | 'creative'>('orchestration');
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -766,17 +954,23 @@ export default function UnifiedViewDashboard() {
     { id: 'creative' as const, label: 'Creative' },
   ];
 
-  const handleApply = (id: string) => {
-    setVisibleOpportunities((prev) => prev.filter((o) => o.id !== id));
-  };
-
-  const handleDismiss = (id: string) => {
-    setVisibleOpportunities((prev) => prev.filter((o) => o.id !== id));
-  };
-
   return (
     <div className="flex h-full overflow-hidden p-4 gap-4">
-      {/* Left column — white rounded canvas */}
+      {/* Slide-in Chat Panel */}
+      <UnifiedChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+
+      {/* Chat toggle button (visible when chat is closed) */}
+      {!isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="shrink-0 self-start mt-2 w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 hover:from-blue-600 hover:to-violet-600 shadow-lg shadow-blue-500/20 transition-all cursor-pointer border-none group"
+          title="Open AI Assistant"
+        >
+          <MessageSquare className="w-5 h-5 text-white" />
+        </button>
+      )}
+
+      {/* Main column — white rounded canvas */}
       <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border border-gray-100">
         {/* Fixed header: daily briefing + KPI cards + tabs */}
         <div className="shrink-0 px-6 pt-6">
@@ -1528,40 +1722,6 @@ export default function UnifiedViewDashboard() {
       </div>
       </div>
 
-      {/* Right — sticky AI Recommendations sidebar */}
-      <div className="w-[340px] shrink-0 bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] border border-gray-100 flex flex-col overflow-hidden">
-        <div className="shrink-0 px-5 pt-5 pb-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="w-4 h-4 text-blue-500" />
-            <h2 className="text-sm font-semibold text-gray-900">
-              AI Optimization Opportunities
-            </h2>
-          </div>
-          <p className="text-[11px] text-gray-400">
-            {visibleOpportunities.length} actionable suggestions based on your data
-          </p>
-        </div>
-        <div className="flex-1 overflow-y-auto px-5 pb-5">
-          <div className="space-y-3">
-            {visibleOpportunities.length > 0 ? (
-              visibleOpportunities.map((opp) => (
-                <OpportunityCard
-                  key={opp.id}
-                  opportunity={opp}
-                  onApply={handleApply}
-                  onDismiss={handleDismiss}
-                />
-              ))
-            ) : (
-              <div className="flex flex-col items-center justify-center text-gray-400 py-12">
-                <Check className="w-8 h-8 mb-2" />
-                <span className="text-sm">All caught up!</span>
-                <span className="text-xs text-gray-300 mt-1">No pending recommendations</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

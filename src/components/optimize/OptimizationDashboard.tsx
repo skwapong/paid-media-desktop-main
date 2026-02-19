@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { RefreshCw, History, X, Undo2, Sparkles, ChevronLeft, ChevronRight, TrendingUp, Brain } from 'lucide-react';
+import { RefreshCw, History, X, Undo2, Sparkles, ChevronLeft, ChevronRight, TrendingUp, Brain, AlertTriangle, Shuffle, Target, Clock, Check } from 'lucide-react';
 import HierarchicalTable from './HierarchicalTable';
 import type {
   LiveCampaign,
@@ -287,6 +287,81 @@ interface OptimizationHistoryEntry {
   isAutomatic: boolean;
   canUndo: boolean;
 }
+
+interface Opportunity {
+  id: string;
+  title: string;
+  description: string;
+  confidence: number;
+  impact: 'high' | 'medium' | 'low';
+  channel: string;
+  iconBg: string;
+  iconColor: string;
+  icon: React.ElementType;
+}
+
+const opportunities: Opportunity[] = [
+  {
+    id: 'opp-1',
+    title: 'Pause Ad: "Back to Gym — Free Shipping (Video)"',
+    description:
+      'This ad has a CPA of $89, which is 62% above the account average. CTR has declined 34% over the last 7 days indicating creative fatigue.',
+    confidence: 91,
+    impact: 'high',
+    channel: 'Meta',
+    iconBg: 'bg-red-50',
+    iconColor: 'text-red-500',
+    icon: AlertTriangle,
+  },
+  {
+    id: 'opp-2',
+    title: 'Reallocate budget to top-performing campaign',
+    description:
+      'Spring Drop Cart Recovery is delivering 5.6x ROAS. Shifting $3,000 from underperforming prospecting could yield an estimated $16,800 in additional revenue.',
+    confidence: 89,
+    impact: 'high',
+    channel: 'TikTok',
+    iconBg: 'bg-blue-50',
+    iconColor: 'text-blue-500',
+    icon: Shuffle,
+  },
+  {
+    id: 'opp-3',
+    title: 'Exclude recent purchasers from retargeting',
+    description:
+      '14% of retargeting impressions are being served to users who already converted in the past 7 days. Excluding them could save $1,200/week in wasted spend.',
+    confidence: 94,
+    impact: 'high',
+    channel: 'Google',
+    iconBg: 'bg-amber-50',
+    iconColor: 'text-amber-500',
+    icon: Target,
+  },
+  {
+    id: 'opp-4',
+    title: 'Increase Meta Lookalike bid cap by 10%',
+    description:
+      'Lookalike audiences are converting at 2.1x the rate of interest-based targeting but are losing 30% of auctions due to low bid caps.',
+    confidence: 82,
+    impact: 'medium',
+    channel: 'Meta',
+    iconBg: 'bg-purple-50',
+    iconColor: 'text-purple-500',
+    icon: TrendingUp,
+  },
+  {
+    id: 'opp-5',
+    title: 'Enable dayparting for Meta campaigns',
+    description:
+      'Conversion data shows 72% of purchases occur between 6pm–11pm. Focusing spend on peak hours could improve ROAS by ~0.4x.',
+    confidence: 78,
+    impact: 'low',
+    channel: 'Meta',
+    iconBg: 'bg-emerald-50',
+    iconColor: 'text-emerald-500',
+    icon: Clock,
+  },
+];
 
 interface FlattenedAd extends Ad {
   campaignId: string;
@@ -653,6 +728,9 @@ export default function OptimizationDashboard() {
           <AIRecommendationsSection recommendations={aiRecommendations} showToast={showToast} />
         )}
 
+        {/* AI Optimization Opportunities */}
+        <AIOptimizationOpportunities showToast={showToast} />
+
         {/* Hierarchical Campaign Tree */}
         <div className="flex-1 overflow-hidden p-3">
           <HierarchicalTable
@@ -964,6 +1042,110 @@ function AIRecommendationsSection({
               </button>
             </div>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Opportunity Card (moved from UnifiedViewDashboard)
+function OpportunityCard({
+  opportunity,
+  onApply,
+  onDismiss,
+}: {
+  opportunity: Opportunity;
+  onApply: (id: string) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const Icon = opportunity.icon;
+
+  return (
+    <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+      {/* Top row: icon + title + confidence */}
+      <div className="flex items-start gap-3">
+        <div className={`w-8 h-8 rounded-lg ${opportunity.iconBg} flex items-center justify-center shrink-0`}>
+          <Icon className={`w-4 h-4 ${opportunity.iconColor}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <span className="text-[13px] font-semibold text-gray-900 leading-snug">
+              {opportunity.title}
+            </span>
+            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full shrink-0 mt-0.5 font-mono">
+              {opportunity.confidence}%
+            </span>
+          </div>
+          <p className="text-[11px] text-gray-400 leading-relaxed mt-1.5">
+            {expanded ? opportunity.description : opportunity.description.slice(0, 80) + '...'}
+          </p>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-[11px] text-blue-500 hover:text-blue-700 font-medium bg-transparent border-none cursor-pointer p-0 mt-1"
+          >
+            {expanded ? 'Hide details' : 'View details'}
+          </button>
+        </div>
+      </div>
+      {/* Buttons */}
+      <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-50">
+        <button
+          onClick={() => onDismiss(opportunity.id)}
+          className="px-3 py-1.5 text-[11px] font-medium text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border-none cursor-pointer"
+        >
+          Dismiss
+        </button>
+        <button
+          onClick={() => onApply(opportunity.id)}
+          className="px-3 py-1.5 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors border-none cursor-pointer"
+        >
+          Review
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// AI Optimization Opportunities Section
+function AIOptimizationOpportunities({
+  showToast,
+}: {
+  showToast: (msg: string, type: 'success' | 'info' | 'warning') => void;
+}) {
+  const [visibleOpportunities, setVisibleOpportunities] = useState<Opportunity[]>(opportunities);
+
+  const handleApply = (id: string) => {
+    setVisibleOpportunities((prev) => prev.filter((o) => o.id !== id));
+    showToast('Opportunity sent for review', 'info');
+  };
+
+  const handleDismiss = (id: string) => {
+    setVisibleOpportunities((prev) => prev.filter((o) => o.id !== id));
+    showToast('Opportunity dismissed', 'info');
+  };
+
+  if (visibleOpportunities.length === 0) return null;
+
+  return (
+    <div className="px-6 py-4 bg-violet-50 border-b border-violet-100 flex-shrink-0">
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles className="w-4 h-4 text-violet-500" />
+        <span className="text-xs font-semibold text-violet-600">
+          AI Optimization Opportunities
+        </span>
+        <span className="text-[11px] text-gray-500">
+          {visibleOpportunities.length} actionable suggestions based on your data
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {visibleOpportunities.map((opp) => (
+          <OpportunityCard
+            key={opp.id}
+            opportunity={opp}
+            onApply={handleApply}
+            onDismiss={handleDismiss}
+          />
         ))}
       </div>
     </div>
