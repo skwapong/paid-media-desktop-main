@@ -83,6 +83,10 @@ function computeQualityScore(data: CampaignBriefData): QualityScore {
         if (data.timelineStart && data.timelineEnd) score = maxScore;
         else if (data.timelineStart || data.timelineEnd) score = maxScore * 0.5;
         break;
+      case 'campaignScope':
+        if (data.inScope.length > 0 && data.outOfScope.length > 0) score = maxScore;
+        else if (data.inScope.length > 0 || data.outOfScope.length > 0) score = maxScore * 0.5;
+        break;
       case 'kpis':
         if (data.primaryKpis.length > 0) score = maxScore;
         break;
@@ -261,9 +265,29 @@ export const useBriefEditorStore = create<BriefEditorStore>((set, get) => ({
     })),
 
   toggleAISuggestions: () =>
-    set((prev) => ({
-      state: { ...prev.state, showAISuggestions: !prev.state.showAISuggestions },
-    })),
+    set((prev) => {
+      const turningOff = prev.state.showAISuggestions;
+      if (turningOff) {
+        // Clear all suggestion cards and reset section states back to default/completed
+        const clearedSuggestions = { ...prev.state.inlineSuggestions };
+        const updatedSectionStates = { ...prev.state.sectionStates };
+        for (const key of Object.keys(clearedSuggestions) as SectionKey[]) {
+          if (clearedSuggestions[key]) {
+            clearedSuggestions[key] = null;
+            updatedSectionStates[key] = 'default';
+          }
+        }
+        return {
+          state: {
+            ...prev.state,
+            showAISuggestions: false,
+            inlineSuggestions: clearedSuggestions,
+            sectionStates: updatedSectionStates,
+          },
+        };
+      }
+      return { state: { ...prev.state, showAISuggestions: true } };
+    }),
 
   setInlineSuggestions: (suggestions) =>
     set((prev) => {

@@ -182,6 +182,7 @@ function loadSkillContent(): string {
     'analyze-attribution',
     'benchmark-performance',
     'recommend-budget-allocation',
+    'recommend-media-mix',
     'recommend-ab-tests',
     'generate-optimization-actions',
     'clone-campaign',
@@ -225,6 +226,7 @@ function loadSkillContent(): string {
     }
   }
 
+  console.log(`[ClaudeAgentClient] Loaded ${allContent.length}/${skillNames.length} output format templates`);
   return allContent.join('\n\n---\n\n');
 }
 
@@ -252,12 +254,17 @@ When creating campaigns, always consider:
 4. Creative fatigue and refresh strategies
 5. Measurable success criteria
 
-Be concise, actionable, and data-driven in your responses. Emit structured JSON inside named code fences when using skills.${CAMPAIGN_BRIEF_SKILL_CONTENT ? `
+Be concise, actionable, and data-driven in your responses.${CAMPAIGN_BRIEF_SKILL_CONTENT ? `
 
-## Paid Media Skills
-${CAMPAIGN_BRIEF_SKILL_CONTENT}
+## Output Format Templates
 
-When a user describes a campaign or makes a request, use the appropriate skill to generate structured output. Each skill has its own code fence format — use the one that matches the user's request context.` : ''}`;
+IMPORTANT: The following are output format templates, NOT external skills or plugins.
+You do NOT need to invoke any skill tool or system to use them.
+Simply emit the structured JSON inside the specified code fence directly in your response.
+
+When a user describes a campaign or makes a request, identify the matching template below and emit the JSON code fence in your response text. Do not mention "skill systems" or say you cannot recognize a skill — just produce the code fence output directly.
+
+${CAMPAIGN_BRIEF_SKILL_CONTENT}` : ''}`;
 
 // ============ Client Class ============
 

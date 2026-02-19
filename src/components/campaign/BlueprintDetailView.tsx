@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { Blueprint } from '../../../electron/utils/ipc-types';
 import type { CampaignBriefData } from '../../types/campaignBriefEditor';
 import { formatMessaging } from '../../utils/messagingHelpers';
@@ -227,6 +227,94 @@ const getChannelIcon = (channel: string | unknown): string | null => {
   return null;
 };
 
+// Add Channel dropdown for Media Mix editing
+function AddChannelDropdown({
+  availableChannels,
+  onAdd,
+  getChannelIcon: getIcon,
+}: {
+  availableChannels: string[];
+  onAdd: (channel: string) => void;
+  getChannelIcon: (ch: string) => string | null;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [isOpen]);
+
+  const filtered = availableChannels.filter(ch =>
+    ch.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition-colors ${
+          isOpen
+            ? 'border-[#3B6FD4] bg-[#FAFBFF] text-[#3B6FD4]'
+            : 'border-dashed border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:text-gray-700'
+        }`}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 3V11M3 7H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+        Add Channel
+      </button>
+      {isOpen && (
+        <div className="absolute top-[calc(100%+4px)] left-0 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-72 flex flex-col overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search channels..."
+              autoFocus
+              className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 outline-none focus:border-[#3B6FD4] placeholder:text-gray-400"
+            />
+          </div>
+          <div className="overflow-y-auto max-h-52 py-1">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-sm text-gray-400">No channels available</div>
+            ) : (
+              filtered.map((ch) => {
+                const icon = getIcon(ch);
+                return (
+                  <button
+                    key={ch}
+                    onClick={() => { onAdd(ch); setIsOpen(false); setSearch(''); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 border-none bg-transparent text-left text-sm text-gray-900 cursor-pointer hover:bg-[#F7F8FB] transition-colors"
+                  >
+                    {icon ? (
+                      <img src={icon} alt="" className="w-5 h-5 object-contain flex-shrink-0 rounded" />
+                    ) : (
+                      <div className="w-5 h-5 rounded bg-gray-200 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-gray-500">
+                        {ch.charAt(0)}
+                      </div>
+                    )}
+                    {ch}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
   blueprint,
   onClose,
@@ -251,6 +339,8 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
   onSendToChat,
   isRecalculating = false,
 }) => {
+  // --- Local editable blueprint state ---
+  const [local, setLocal] = useState<Blueprint>(() => ({ ...blueprint }));
   const [allocations, setAllocations] = useState<ChannelAllocation[]>(() => generateMediaMix(blueprint));
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -258,15 +348,35 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [aiLoadingSection, setAiLoadingSection] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Record<string, string>>({});
+  const saveToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const outcomes = generateOutcomes(blueprint);
+  // Sync local state when blueprint prop changes externally (e.g. AI update)
+  const prevBlueprintId = useRef(blueprint.id);
+  useEffect(() => {
+    if (blueprint.id !== prevBlueprintId.current || blueprint.updatedAt !== local.updatedAt) {
+      setLocal({ ...blueprint });
+      setAllocations(generateMediaMix(blueprint));
+      setHasChanges(false);
+      prevBlueprintId.current = blueprint.id;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blueprint]);
 
-  // Currency and budget calculations
-  const currencyMatch = blueprint.budget.amount.match(/^([£$€])/);
+  // Helper: apply partial updates to local blueprint, mark changes
+  const applyLocalUpdate = useCallback((updates: Partial<Blueprint>) => {
+    setLocal(prev => ({ ...prev, ...updates }));
+    setHasChanges(true);
+  }, []);
+
+  // Recompute outcomes from local state so they react to edits
+  const outcomes = useMemo(() => generateOutcomes(local), [local]);
+
+  // Currency and budget calculations from local
+  const currencyMatch = local.budget.amount.match(/^([£$€])/);
   const currency = currencyMatch ? currencyMatch[1] : '£';
-  const budgetNum = parseFloat(blueprint.budget.amount.replace(/[^0-9.]/g, '')) || 0;
-  const budgetMultiplier = blueprint.budget.amount.toUpperCase().includes('K') ? 1000 :
-    blueprint.budget.amount.toUpperCase().includes('M') ? 1000000 : 1;
+  const budgetNum = parseFloat(local.budget.amount.replace(/[^0-9.]/g, '')) || 0;
+  const budgetMultiplier = local.budget.amount.toUpperCase().includes('K') ? 1000 :
+    local.budget.amount.toUpperCase().includes('M') ? 1000000 : 1;
   const totalBudget = budgetNum * budgetMultiplier;
 
   const formatSpend = useCallback((pct: number): string => {
@@ -275,51 +385,246 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
     return `~${currency}${value}k`;
   }, [totalBudget, currency]);
 
-  // Handle "Why this?" actions
+  // Listen for AI media mix recommendations
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        channels?: Array<{ name: string; role: string; percentage: number; rationale: string }>;
+        strategy?: string;
+      };
+      if (!detail?.channels?.length) return;
+      const newAllocations: ChannelAllocation[] = detail.channels.map(ch => ({
+        channel: ch.name,
+        role: ch.role,
+        notes: [ch.rationale],
+        percentage: ch.percentage,
+        spend: formatSpend(ch.percentage),
+      }));
+      setAllocations(newAllocations);
+      setLocal(prev => ({ ...prev, channels: newAllocations.map(a => a.channel) }));
+      setHasChanges(true);
+      setAiLoadingSection(null);
+    };
+    window.addEventListener('media-mix-update', handler);
+    return () => window.removeEventListener('media-mix-update', handler);
+  }, [formatSpend]);
+
+  // --- Section Chat ---
   const handleSectionChat = (question: string) => {
     onSendToChat?.(question);
   };
 
-  // Handle AI Edit
-  const handleSectionAIEdit = async (sectionName: string) => {
-    if (aiLoadingSection) return;
+  // --- AI Edit: send structured context to chat ---
+  const handleSectionAIEdit = useCallback((sectionName: string) => {
+    if (aiLoadingSection || !onSendToChat) return;
     setAiLoadingSection(sectionName);
 
-    try {
-      // Use IPC instead of fetch('/api/...')
-      if (window.paidMediaSuite?.chat) {
-        const message = `Help me improve the ${sectionName.toLowerCase()} section of this campaign blueprint`;
-        onSendToChat?.(message);
-      }
-    } catch (err) {
-      console.warn('[BlueprintDetailView] AI Edit failed:', err);
-      onSendToChat?.(`Help me improve the ${sectionName.toLowerCase()} section`);
-    } finally {
-      setAiLoadingSection(null);
-    }
-  };
+    if (sectionName === 'Media Mix') {
+      // Use the recommend-media-mix skill for channel + budget recommendations
+      const currentMix = allocations.map(a => ({ channel: a.channel, role: a.role, percentage: a.percentage }));
+      const prompt = [
+        'Recommend the optimal media channel mix and budget allocation for my campaign.',
+        '',
+        `Campaign objective: ${briefData?.businessObjective || local.messaging || 'Drive conversions'}`,
+        `Budget: ${local.budget.amount || 'Not specified'}`,
+        `Pacing: ${local.budget.pacing || 'Even'}`,
+        `Target audiences: ${local.audiences.join(', ') || 'Not specified'}`,
+        `Primary KPIs: ${briefData?.primaryKpis?.join(', ') || 'CPA, ROAS'}`,
+        '',
+        `Current media mix:`,
+        ...currentMix.map(ch => `  - ${ch.channel} (${ch.role}): ${ch.percentage}%`),
+        '',
+        'Analyze the current mix and recommend improvements. Add or remove channels as needed.',
+        'Output your recommendation inside a media-mix-json code fence.',
+      ].join('\n');
 
-  // Handle section editing
+      onSendToChat(prompt);
+      // Loading cleared by media-mix-update event listener or timeout
+      setTimeout(() => setAiLoadingSection(null), 15000);
+      return;
+    }
+
+    // Other sections: generic AI edit
+    const sectionData: Record<string, unknown> = {};
+    switch (sectionName) {
+      case 'Overview':
+        sectionData.messaging = local.messaging;
+        sectionData.budget = local.budget;
+        sectionData.channels = local.channels;
+        sectionData.audiences = local.audiences;
+        break;
+      case 'Targeting':
+        sectionData.audiences = local.audiences;
+        sectionData.channels = local.channels;
+        break;
+      case 'Creative Brief':
+        sectionData.messaging = local.messaging;
+        sectionData.creativeBrief = local.creativeBrief;
+        sectionData.cta = local.cta;
+        break;
+    }
+
+    const prompt = [
+      `Improve the "${sectionName}" section of my campaign blueprint.`,
+      `Current data: ${JSON.stringify(sectionData, null, 2)}`,
+      '',
+      'Suggest specific improvements. Output your changes inside a brief-update-json code fence with only the changed fields.',
+    ].join('\n');
+
+    onSendToChat(prompt);
+    setTimeout(() => setAiLoadingSection(null), 10000);
+  }, [aiLoadingSection, onSendToChat, local, allocations, briefData]);
+
+  // --- Section editing: initialize drafts ---
   const handleSectionEdit = (sectionName: string) => {
     if (editingSection === sectionName) {
       setEditingSection(null);
       setEditDraft({});
     } else {
       const drafts: Record<string, string> = {};
-      if (sectionName === 'Overview') {
-        drafts.description = blueprint.messaging || '';
+      switch (sectionName) {
+        case 'Overview':
+          drafts.description = local.messaging || '';
+          break;
+        case 'Creative Brief':
+          drafts.primaryAngle = local.creativeBrief?.primaryAngle || formatMessaging(local.messaging) || '';
+          drafts.cta = local.cta || '';
+          break;
       }
       setEditDraft(drafts);
       setEditingSection(sectionName);
     }
   };
 
-  // Save changes
+  // --- Section save: apply draft edits to local blueprint ---
+  const handleSectionSave = useCallback((sectionName: string) => {
+    switch (sectionName) {
+      case 'Overview':
+        applyLocalUpdate({ messaging: editDraft.description || local.messaging });
+        break;
+      case 'Media Mix': {
+        // Recalculate spend strings from current allocations
+        const updated = allocations.map(a => ({ ...a, spend: formatSpend(a.percentage) }));
+        setAllocations(updated);
+        applyLocalUpdate({ channels: updated.map(a => a.channel) });
+        break;
+      }
+      case 'Targeting':
+        if (editDraft.audiences) {
+          const names = editDraft.audiences.split('\n').map(s => s.trim()).filter(Boolean);
+          applyLocalUpdate({ audiences: names });
+        }
+        break;
+      case 'Creative Brief':
+        applyLocalUpdate({
+          messaging: editDraft.primaryAngle || local.messaging,
+          cta: editDraft.cta || local.cta,
+          creativeBrief: {
+            ...local.creativeBrief,
+            primaryAngle: editDraft.primaryAngle || local.creativeBrief?.primaryAngle || '',
+            confidence: local.creativeBrief?.confidence || local.confidence,
+            supportingMessages: local.creativeBrief?.supportingMessages || [],
+            recommendedFormats: local.creativeBrief?.recommendedFormats || [],
+            fatigueRisk: local.creativeBrief?.fatigueRisk || [],
+            refreshPlan: local.creativeBrief?.refreshPlan || [],
+          },
+        });
+        break;
+    }
+    setEditingSection(null);
+    setEditDraft({});
+  }, [editDraft, local, allocations, formatSpend, applyLocalUpdate]);
+
+  // --- Media Mix allocation editing ---
+  const handleAllocationChange = useCallback((idx: number, newPct: number) => {
+    setAllocations(prev => {
+      const updated = [...prev];
+      const clamped = Math.max(0, Math.min(100, newPct));
+      const diff = clamped - updated[idx].percentage;
+      updated[idx] = { ...updated[idx], percentage: clamped, spend: formatSpend(clamped) };
+      // Redistribute diff across other channels proportionally
+      const others = updated.filter((_, i) => i !== idx);
+      const otherTotal = others.reduce((s, a) => s + a.percentage, 0);
+      if (otherTotal > 0) {
+        for (let i = 0; i < updated.length; i++) {
+          if (i !== idx) {
+            const share = updated[i].percentage / otherTotal;
+            updated[i] = { ...updated[i], percentage: Math.max(0, Math.round(updated[i].percentage - diff * share)) };
+            updated[i].spend = formatSpend(updated[i].percentage);
+          }
+        }
+      }
+      // Ensure total is 100
+      const total = updated.reduce((s, a) => s + a.percentage, 0);
+      if (total !== 100 && updated.length > 0) {
+        const adjustIdx = idx === 0 ? 1 : 0;
+        if (updated[adjustIdx]) {
+          updated[adjustIdx] = { ...updated[adjustIdx], percentage: updated[adjustIdx].percentage + (100 - total) };
+          updated[adjustIdx].spend = formatSpend(updated[adjustIdx].percentage);
+        }
+      }
+      return updated;
+    });
+    setHasChanges(true);
+  }, [formatSpend]);
+
+  const handleRemoveChannel = useCallback((idx: number) => {
+    setAllocations(prev => {
+      const removed = prev[idx];
+      const rest = prev.filter((_, i) => i !== idx);
+      if (rest.length === 0) return prev;
+      const redistPct = removed.percentage / rest.length;
+      return rest.map(a => {
+        const newPct = Math.round(a.percentage + redistPct);
+        return { ...a, percentage: newPct, spend: formatSpend(newPct) };
+      });
+    });
+    setHasChanges(true);
+  }, [formatSpend]);
+
+  const handleAddChannel = useCallback((channel: string) => {
+    setAllocations(prev => {
+      if (prev.some(a => a.channel === channel)) return prev;
+      // Give new channel 10%, shrink others proportionally
+      const newPct = 10;
+      const scale = (100 - newPct) / 100;
+      const shrunk = prev.map(a => {
+        const pct = Math.max(1, Math.round(a.percentage * scale));
+        return { ...a, percentage: pct, spend: formatSpend(pct) };
+      });
+      // Correct rounding
+      const shrunkTotal = shrunk.reduce((s, a) => s + a.percentage, 0);
+      const adjustedNewPct = 100 - shrunkTotal;
+      const roleMap: Record<string, string> = {
+        'Meta Ads': 'Acquisition', 'Google Ads': 'Demand Capture', 'TikTok Ads': 'Awareness',
+        'YouTube': 'Discovery', 'YouTube Shorts': 'Discovery', 'LinkedIn Ads': 'B2B',
+        'Pinterest Ads': 'Inspiration', 'Snapchat Ads': 'Awareness', 'Programmatic': 'Scale',
+        'Connected TV': 'Reach', 'Spotify Ads': 'Audio', 'Amazon Ads': 'Commerce',
+      };
+      const newAlloc: ChannelAllocation = {
+        channel,
+        role: roleMap[channel] || 'Supporting',
+        notes: [],
+        percentage: adjustedNewPct,
+        spend: formatSpend(adjustedNewPct),
+      };
+      return [...shrunk, newAlloc];
+    });
+    setHasChanges(true);
+  }, [formatSpend]);
+
+  // Available channels not yet in the mix
+  const availableChannels = useMemo(() => {
+    const current = new Set(allocations.map(a => a.channel));
+    return Array.from(VALID_CHANNELS).filter(ch => !current.has(ch));
+  }, [allocations]);
+
+  // --- Global save ---
   const handleSave = useCallback(() => {
     if (!onUpdate) return;
     setIsSaving(true);
 
-    const updatedBlueprint: Blueprint = { ...blueprint };
+    const updatedBlueprint: Blueprint = { ...local, channels: allocations.map(a => a.channel) };
     onUpdate(updatedBlueprint);
 
     setTimeout(() => {
@@ -329,29 +634,30 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
         onSaveComplete(updatedBlueprint);
       } else {
         setShowSaveToast(true);
-        setTimeout(() => setShowSaveToast(false), 3000);
+        if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
+        saveToastTimer.current = setTimeout(() => setShowSaveToast(false), 3000);
       }
     }, 500);
-  }, [blueprint, onUpdate, onSaveComplete]);
+  }, [local, allocations, onUpdate, onSaveComplete]);
 
-  // Confidence score
-  const confidenceScore = (() => {
+  // --- Confidence score (recomputed from local) ---
+  const confidenceScore = useMemo(() => {
     let score = 0;
-    if (blueprint.budget?.amount && parseFloat(blueprint.budget.amount.replace(/[^0-9.]/g, '')) > 0) score += 15;
-    if (blueprint.channels.length > 0) score += 10;
-    if (blueprint.channels.length >= 3) score += 5;
-    if (blueprint.audiences.length > 0) score += 10;
-    if (blueprint.audiences.length >= 2) score += 5;
-    if (blueprint.metrics.roas || blueprint.metrics.ctr) score += 10;
-    if (blueprint.metrics.reach) score += 5;
+    if (local.budget?.amount && parseFloat(local.budget.amount.replace(/[^0-9.]/g, '')) > 0) score += 15;
+    if (local.channels.length > 0) score += 10;
+    if (local.channels.length >= 3) score += 5;
+    if (local.audiences.length > 0) score += 10;
+    if (local.audiences.length >= 2) score += 5;
+    if (local.metrics.roas || local.metrics.ctr) score += 10;
+    if (local.metrics.reach) score += 5;
     if (briefData?.primaryGoals?.length) score += 5;
     if (briefData?.primaryKpis?.length) score += 5;
     if (briefData?.primaryAudience?.length) score += 5;
-    if (blueprint.budget?.pacing) score += 5;
+    if (local.budget?.pacing) score += 5;
     if (briefData?.timelineStart) score += 5;
-    const mult = blueprint.confidence === 'High' ? 1.0 : blueprint.confidence === 'Medium' ? 0.9 : 0.8;
+    const mult = local.confidence === 'High' ? 1.0 : local.confidence === 'Medium' ? 0.9 : 0.8;
     return Math.min(Math.round(score * mult), 100);
-  })();
+  }, [local, briefData]);
 
   const hasBudget = budgetNum > 0;
 
@@ -378,7 +684,7 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
           </div>
           <span className="text-sm text-gray-500">Campaign Design Blueprints</span>
           <span className="text-gray-500">/</span>
-          <span className="text-sm font-semibold text-gray-900">{blueprint.name}</span>
+          <span className="text-sm font-semibold text-gray-900">{local.name}</span>
         </div>
         <div className="flex items-center gap-3">
           {/* Undo/Redo */}
@@ -479,7 +785,7 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
             <div className="flex flex-col gap-2">
               {[
                 { label: 'Budget Sufficiency', ok: hasBudget },
-                { label: 'Audience Reachability', ok: blueprint.audiences.length > 0 },
+                { label: 'Audience Reachability', ok: local.audiences.length > 0 },
                 { label: 'Creative Readiness', ok: true },
               ].map((item) => (
                 <div key={item.label} className="flex justify-between items-center">
@@ -498,7 +804,9 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
           {/* Overview Section */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
             <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-semibold text-gray-900 m-0">Overview</h2>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 m-0">Overview</h2>
+              </div>
               <SectionActions
                 sectionName="Overview"
                 onChat={handleSectionChat}
@@ -509,44 +817,123 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
               />
             </div>
 
-            {/* Campaign snapshot bar */}
+            {/* Campaign snapshot bar — 3 columns */}
             <div className="flex gap-0 mb-6 bg-gray-50 rounded-[10px] overflow-hidden border border-[#F0F1F3]">
               {[
-                { label: 'Budget', value: briefData?.budgetAmount || blueprint.budget?.amount || '$200,000' },
-                { label: 'Channels', value: `${blueprint.channels.length} channels` },
+                { label: 'Budget', value: briefData?.budgetAmount || local.budget?.amount || '$200,000' },
+                { label: 'Timeline', value: (() => {
+                  const s = briefData?.timelineStart; const e = briefData?.timelineEnd;
+                  if (s && e) { const fmt = (d: string) => { const p = new Date(d); return isNaN(p.getTime()) ? d.replace(/,?\s*\d{4}/, '') : p.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }; return `${fmt(s)} – ${fmt(e)}`; }
+                  return 'TBD';
+                })() },
+                { label: 'Channels', value: `${allocations.length} channel${allocations.length !== 1 ? 's' : ''}` },
               ].map((item, i) => (
-                <div key={i} className={`flex-1 px-4 py-3 flex flex-col ${i < 1 ? 'border-r border-gray-200' : ''}`}>
+                <div key={i} className={`flex-1 px-4 py-3 flex flex-col ${i < 2 ? 'border-r border-gray-200' : ''}`}>
                   <div className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">{item.label}</div>
                   <div className="text-[13px] font-semibold text-gray-900 mt-0.5">{item.value}</div>
                 </div>
               ))}
             </div>
 
-            {/* Description */}
-            {editingSection === 'Overview' ? (
-              <div className="flex flex-col gap-2">
-                <textarea
-                  value={editDraft.description ?? formatMessaging(blueprint.messaging) ?? ''}
-                  onChange={(e) => setEditDraft(prev => ({ ...prev, description: e.target.value }))}
-                  rows={3}
-                  className="w-full px-3 py-2.5 border border-[#3B6FD4] rounded-lg text-sm text-gray-700 leading-relaxed resize-y outline-none bg-[#FAFBFF] focus:ring-2 focus:ring-[#3B6FD4]/10"
-                />
-                <div className="flex gap-2 justify-end mt-3">
-                  <button onClick={() => { setEditingSection(null); setEditDraft({}); }} className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 cursor-pointer hover:bg-gray-50">Cancel</button>
-                  <button onClick={() => { if (onUpdate) onUpdate({ ...blueprint, messaging: editDraft.description || formatMessaging(blueprint.messaging) }); setEditingSection(null); }} className="px-3.5 py-1.5 bg-[#212327] border-none rounded-lg text-[13px] text-white cursor-pointer hover:bg-gray-700">Save</button>
+            {/* Two-column grid: Objective + KPIs | Attribution + Success */}
+            <div className="grid grid-cols-2 gap-8">
+              {/* Left: Objective & KPIs */}
+              <div className="flex flex-col gap-6">
+                <div>
+                  <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide m-0 mb-2.5">Primary Objective</h3>
+                  {editingSection === 'Overview' ? (
+                    <textarea
+                      value={editDraft.description ?? formatMessaging(local.messaging) ?? ''}
+                      onChange={(e) => setEditDraft(prev => ({ ...prev, description: e.target.value }))}
+                      rows={3}
+                      className="w-full px-3 py-2.5 border border-[#3B6FD4] rounded-lg text-sm text-gray-700 leading-relaxed resize-y outline-none bg-[#FAFBFF] focus:ring-2 focus:ring-[#3B6FD4]/10"
+                    />
+                  ) : (
+                    <div className="border-l-[3px] border-[#3B6FD4] pl-3.5">
+                      <p className="text-sm text-gray-800 leading-relaxed m-0">
+                        {briefData?.businessObjective || formatMessaging(local.messaging) || 'Efficiently acquire new customers while maintaining stable cost per acquisition.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide m-0 mb-3">Key Performance Indicators</h3>
+                  <div className="flex flex-col gap-2.5">
+                    {/* Northstar KPI */}
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#3B6FD4] flex-shrink-0" />
+                      <span className="text-[13px] text-gray-700">
+                        <strong className="font-semibold text-gray-900">Northstar:</strong>{' '}
+                        {briefData?.primaryKpis?.[0] || 'CPA'}
+                      </span>
+                      <span className="text-[11px] font-semibold text-[#1957DB] bg-[#EFF6FF] px-2 py-0.5 rounded uppercase tracking-wide">Primary</span>
+                    </div>
+                    {/* Secondary KPIs */}
+                    {(briefData?.secondaryKpis?.length ? briefData.secondaryKpis : briefData?.primaryKpis?.slice(1) || ['Conversion Rate', 'ROAS']).map((kpi: string, idx: number) => (
+                      <div key={idx} className="flex items-center gap-2.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-300 flex-shrink-0" />
+                        <span className="text-[13px] text-gray-700">{kpi}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            ) : (
-              <p className="text-sm text-gray-700 leading-relaxed m-0">
-                {formatMessaging(blueprint.messaging) || 'No description provided.'}
-              </p>
+
+              {/* Right: Attribution & Success */}
+              <div className="flex flex-col gap-6">
+                <div>
+                  <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide m-0 mb-2.5">Attribution Window</h3>
+                  <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-lg border border-[#F0F1F3]">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="flex-shrink-0">
+                      <circle cx="9" cy="9" r="7" stroke="#3B6FD4" strokeWidth="1.4"/>
+                      <path d="M9 5V9L11.5 11.5" stroke="#3B6FD4" strokeWidth="1.4" strokeLinecap="round"/>
+                    </svg>
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">7-day click / 1-day view</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Balances responsiveness with signal reliability</div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide m-0 mb-3">What success looks like</h3>
+                  <div className="flex flex-col gap-2.5">
+                    {(() => {
+                      const goals = [...(briefData?.primaryGoals || []), ...(briefData?.secondaryGoals || [])];
+                      return (goals.length > 0 ? goals.slice(0, 4) : [
+                        'New-customer growth at or below target CPA',
+                        'Stable performance through learning phases',
+                        'Clear signals to scale, hold, or reallocate',
+                        'Actionable insights for future campaigns',
+                      ]).map((g: string, idx: number) => (
+                        <div key={idx} className="flex items-start gap-2.5">
+                          <div className="w-5 h-5 rounded-md bg-green-50 border border-green-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                              <path d="M3 6L5 8L9 4" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </div>
+                          <span className="text-[13px] text-gray-700 leading-snug">{g}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {editingSection === 'Overview' && (
+              <div className="flex gap-2 justify-end mt-4">
+                <button onClick={() => { setEditingSection(null); setEditDraft({}); }} className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 cursor-pointer hover:bg-gray-50">Cancel</button>
+                <button onClick={() => handleSectionSave('Overview')} className="px-3.5 py-1.5 bg-[#212327] border-none rounded-lg text-[13px] text-white cursor-pointer hover:bg-gray-700">Save</button>
+              </div>
             )}
           </div>
 
           {/* Media Mix Section */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-semibold text-gray-900 m-0">Media Mix</h2>
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 m-0">Media Mix</h2>
+                <p className="text-sm text-[#464B55] m-0 mt-1">Channels, formats, and execution considerations</p>
+              </div>
               <SectionActions
                 sectionName="Media Mix"
                 onChat={handleSectionChat}
@@ -557,34 +944,95 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
               />
             </div>
 
-            <div className="flex flex-col gap-4">
+            {/* Table header */}
+            <div className="flex items-center gap-4 py-2 mt-4 border-b border-gray-200 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="w-8 flex-shrink-0" />
+              <div className="flex-1">Channel</div>
+              <div className="w-28 text-center">Role</div>
+              <div className="w-20 text-right">Weight</div>
+              <div className="w-16 text-right">Spend</div>
+            </div>
+
+            <div className="flex flex-col">
               {allocations.map((alloc, idx) => {
                 const icon = getChannelIcon(alloc.channel);
                 return (
-                  <div key={idx} className="flex items-center gap-4 py-3 border-b border-gray-100 last:border-b-0">
+                  <div key={idx} className="flex items-center gap-4 py-3.5 border-b border-gray-100 last:border-b-0">
                     <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
                       {icon ? <img src={icon} alt={alloc.channel} className="w-5 h-5" /> : <span className="text-xs font-bold text-gray-400">{alloc.channel.charAt(0)}</span>}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900">{alloc.channel}</span>
-                        <span className="text-xs text-gray-500">{alloc.role}</span>
-                      </div>
+                      <span className="text-sm font-medium text-gray-900">{alloc.channel}</span>
                     </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-sm font-semibold text-gray-900">{alloc.percentage}%</span>
+                    <div className="w-28 text-center">
+                      <span className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded">{alloc.role}</span>
+                    </div>
+                    <div className="w-20 text-right">
+                      {editingSection === 'Media Mix' ? (
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={alloc.percentage}
+                          onChange={(e) => handleAllocationChange(idx, parseInt(e.target.value) || 0)}
+                          className="w-16 px-1.5 py-1 border border-gray-300 rounded text-sm text-right text-gray-900 outline-none focus:border-[#3B6FD4]"
+                        />
+                      ) : (
+                        <span className="text-sm font-semibold text-gray-900">{alloc.percentage}%</span>
+                      )}
+                    </div>
+                    <div className="w-16 text-right flex items-center justify-end gap-1">
                       <span className="text-xs text-gray-500">{alloc.spend}</span>
+                      {editingSection === 'Media Mix' && allocations.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveChannel(idx)}
+                          className="w-5 h-5 flex items-center justify-center bg-transparent border-none cursor-pointer text-gray-400 hover:text-red-500 p-0"
+                          title="Remove channel"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
+            {editingSection === 'Media Mix' && (
+              <div className="flex flex-col gap-3 mt-4">
+                {/* Add Channel */}
+                {availableChannels.length > 0 && (
+                  <AddChannelDropdown
+                    availableChannels={availableChannels}
+                    onAdd={handleAddChannel}
+                    getChannelIcon={getChannelIcon}
+                  />
+                )}
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => { setEditingSection(null); setAllocations(generateMediaMix(local)); }} className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 cursor-pointer hover:bg-gray-50">Cancel</button>
+                  <button onClick={() => handleSectionSave('Media Mix')} className="px-3.5 py-1.5 bg-[#212327] border-none rounded-lg text-[13px] text-white cursor-pointer hover:bg-gray-700">Save</button>
+                </div>
+              </div>
+            )}
+
+            {/* Total */}
+            <div className="flex items-center gap-4 py-3 mt-1 border-t border-gray-300">
+              <div className="w-8 flex-shrink-0" />
+              <div className="flex-1 text-sm font-semibold text-gray-900">Total</div>
+              <div className="w-28" />
+              <div className="w-20 text-right text-sm font-semibold text-gray-900">100%</div>
+              <div className="w-16 text-right text-xs font-semibold text-gray-700">
+                {totalBudget > 0 ? `${currency}${totalBudget >= 1000 ? `${Math.round(totalBudget / 1000)}k` : totalBudget}` : '-'}
+              </div>
+            </div>
           </div>
 
-          {/* Targeting Section */}
+          {/* Who we're targeting Section */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-semibold text-gray-900 m-0">Targeting</h2>
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 m-0">Who we're targeting</h2>
+                <p className="text-sm text-[#464B55] m-0 mt-1">Priority audiences, intent signals, and reach assumptions</p>
+              </div>
               <SectionActions
                 sectionName="Targeting"
                 onChat={handleSectionChat}
@@ -595,49 +1043,108 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
               />
             </div>
 
-            <div className="flex flex-col gap-4">
-              {blueprint.audiences.map((audience, idx) => {
-                // Handle both string and object audience formats
+            {/* Audience cards */}
+            <div className="grid grid-cols-2 gap-4 mt-6">
+              {local.audiences.length > 0 ? local.audiences.map((audience, idx) => {
                 const audienceName = typeof audience === 'string' ? audience : (audience as any)?.name || String(audience);
                 return (
-                  <div key={idx} className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-lg">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
-                      <circle cx="8" cy="8" r="6.5" stroke="#636A77" strokeWidth="1.5"/>
-                      <circle cx="8" cy="8" r="3" stroke="#636A77" strokeWidth="1.5"/>
-                      <circle cx="8" cy="8" r="1" fill="#636A77"/>
-                    </svg>
-                    <span className="text-sm text-gray-700">{audienceName}</span>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded ${idx === 0 ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
-                      {idx === 0 ? 'Primary' : 'Secondary'}
-                    </span>
+                  <div key={idx} className={`rounded-2xl p-6 flex flex-col gap-4 ${idx === 0 ? 'bg-[#F7F8FB]' : 'border border-[#DCE1EA]'}`}>
+                    <div className="flex justify-end">
+                      <span className="text-xs font-medium text-[#25582E] bg-[#C9F3D1] px-2 py-1 rounded">
+                        {local.confidence}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="text-sm text-[#464B55]">{idx === 0 ? 'Primary Audience' : 'Secondary Audience'}</div>
+                      {editingSection === 'Targeting' ? (
+                        <input
+                          type="text"
+                          value={editDraft[`audience_${idx}`] ?? audienceName}
+                          onChange={(e) => {
+                            setEditDraft(prev => ({ ...prev, [`audience_${idx}`]: e.target.value }));
+                          }}
+                          className="w-full px-3 py-2 border border-[#3B6FD4] rounded-lg text-base text-[#212327] outline-none bg-[#FAFBFF] focus:ring-2 focus:ring-[#3B6FD4]/10"
+                        />
+                      ) : (
+                        <div className="text-base font-medium text-[#212327]">{audienceName}</div>
+                      )}
+                      <div className="flex gap-2">
+                        <span className="text-xs font-medium text-[#1957DB] bg-[#F1F4FC] px-2 py-0.5 rounded">
+                          {idx === 0 ? 'High Intent' : 'Lookalike'}
+                        </span>
+                        <span className="text-xs font-medium text-[#1957DB] bg-[#F1F4FC] px-2 py-0.5 rounded">
+                          {idx === 0 ? 'Prospecting' : 'Expansion'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-px bg-[#DCE1EA]" />
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm text-[#636A77]">Spend Priority</span>
+                      <div className="flex gap-1">
+                        {[1,2,3,4,5].map((i) => (
+                          <div key={i} className={`w-3 h-3 rounded-full ${i <= (idx === 0 ? 5 : 3) ? 'bg-[#464B55]' : 'bg-[#DCE1EA]'}`} />
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 );
-              })}
-              {blueprint.audiences.length === 0 && (
-                <p className="text-sm text-gray-400 italic m-0">No audiences defined yet.</p>
-              )}
-
-              {/* TD Segments */}
-              {tdSegments.length > 0 && (
-                <div className="mt-2">
-                  <div className="text-xs font-semibold text-gray-500 uppercase mb-2">TD Audience Segments</div>
-                  <div className="flex flex-wrap gap-2">
-                    {tdSegments.map((seg) => (
-                      <span key={seg.id} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded">
-                        {seg.name}
-                        {seg.audienceSize && <span className="ml-1 text-indigo-400">({seg.audienceSize >= 1000 ? `${(seg.audienceSize / 1000).toFixed(0)}K` : seg.audienceSize})</span>}
-                      </span>
-                    ))}
-                  </div>
+              }) : (
+                <div className="col-span-2">
+                  <p className="text-sm text-gray-400 italic m-0">No audiences defined yet.</p>
                 </div>
               )}
             </div>
+            {editingSection === 'Targeting' && (
+              <div className="flex gap-2 justify-end mt-4">
+                <button onClick={() => { setEditingSection(null); setEditDraft({}); }} className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 cursor-pointer hover:bg-gray-50">Cancel</button>
+                <button onClick={() => {
+                  const updated = local.audiences.map((a, i) => {
+                    const name = editDraft[`audience_${i}`];
+                    return name !== undefined ? name : (typeof a === 'string' ? a : (a as any)?.name || String(a));
+                  });
+                  applyLocalUpdate({ audiences: updated });
+                  setEditingSection(null);
+                  setEditDraft({});
+                }} className="px-3.5 py-1.5 bg-[#212327] border-none rounded-lg text-[13px] text-white cursor-pointer hover:bg-gray-700">Save</button>
+              </div>
+            )}
+
+            {/* TD Segments */}
+            {tdSegments.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-[#DCE1EA]">
+                <div className="flex items-center gap-2 mb-3">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2C4.68 2 2 4.68 2 8C2 11.32 4.68 14 8 14C11.32 14 14 11.32 14 8C14 4.68 11.32 2 8 2ZM8 4C9.1 4 10 4.9 10 6C10 7.1 9.1 8 8 8C6.9 8 6 7.1 6 6C6 4.9 6.9 4 8 4ZM8 12.4C6.3 12.4 4.8 11.54 4 10.26C4.02 9.1 6.4 8.5 8 8.5C9.6 8.5 11.98 9.1 12 10.26C11.2 11.54 9.7 12.4 8 12.4Z" fill="#1957DB"/>
+                  </svg>
+                  <span className="text-sm font-semibold text-[#1957DB]">Audience Studio</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tdSegments.map((seg) => (
+                    <div key={seg.id} className="flex items-center gap-1.5 bg-[#EEF2FF] px-3 py-1.5 rounded-md border border-[#C7D2FE]">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <circle cx="7" cy="7" r="6" stroke="#1957DB" strokeWidth="1.5"/>
+                        <path d="M5 7L6.5 8.5L9 5.5" stroke="#1957DB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <span className="text-sm font-medium text-[#1957DB]">{seg.name}</span>
+                      {seg.audienceSize && (
+                        <span className="text-xs text-gray-500">
+                          {seg.audienceSize >= 1_000_000 ? `${(seg.audienceSize / 1_000_000).toFixed(1)}M` : seg.audienceSize >= 1000 ? `${Math.round(seg.audienceSize / 1000)}K` : seg.audienceSize}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Creative Brief Section */}
           <div className="bg-white rounded-xl p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-semibold text-gray-900 m-0">Creative Brief</h2>
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 m-0">Creative Brief</h2>
+                <p className="text-sm text-[#464B55] m-0 mt-1">Messaging direction, formats, and execution considerations</p>
+              </div>
               <SectionActions
                 sectionName="Creative Brief"
                 onChat={handleSectionChat}
@@ -648,29 +1155,176 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
               />
             </div>
 
-            <div className="flex flex-col gap-4">
-              <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Primary Messaging</div>
-                <p className="text-sm text-gray-700 leading-relaxed m-0 italic">
-                  &ldquo;{formatMessaging(blueprint.messaging) || 'Compelling campaign messaging'}&rdquo;
+            <div className="flex flex-col gap-6 mt-6">
+              {/* Two-column: Primary Angle + Supporting Messages | Recommended Formats */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-4">
+                  {/* Primary Creative Angle */}
+                  <div className="bg-[#F7F8FB] rounded-2xl p-6 flex flex-col gap-4">
+                    <div className="flex justify-end">
+                      <span className="text-xs font-medium text-[#25582E] bg-[#C9F3D1] px-2 py-1 rounded">{local.confidence}</span>
+                    </div>
+                    <h3 className="text-base font-medium text-[#212327] m-0">Primary Creative Angle</h3>
+                    {editingSection === 'Creative Brief' ? (
+                      <textarea
+                        value={editDraft.primaryAngle ?? local.creativeBrief?.primaryAngle ?? formatMessaging(local.messaging) ?? ''}
+                        onChange={(e) => setEditDraft(prev => ({ ...prev, primaryAngle: e.target.value }))}
+                        rows={3}
+                        className="w-full px-3 py-2.5 border border-[#3B6FD4] rounded-lg text-sm text-gray-700 italic resize-y outline-none bg-[#FAFBFF]"
+                      />
+                    ) : (
+                      <div className="flex gap-5">
+                        <div className="w-0.5 bg-[#DCE1EA] flex-shrink-0" />
+                        <p className="text-sm italic text-[#464B55] m-0 leading-relaxed">
+                          {local.creativeBrief?.primaryAngle || formatMessaging(local.messaging) || 'Compelling campaign messaging tailored to your audience.'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  {/* Supporting Messages */}
+                  <div className="bg-[#F7F8FB] rounded-2xl p-6 flex flex-col gap-4">
+                    <h3 className="text-base font-medium text-[#212327] m-0">Supporting Messages</h3>
+                    <div className="flex flex-col gap-2">
+                      {(local.creativeBrief?.supportingMessages || ['Drive results with data-driven targeting', 'Optimize creative performance across channels']).map((msg, idx) => (
+                        <div key={idx} className="flex items-center gap-4">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
+                            <circle cx="12" cy="12" r="10" stroke="#CBD1DB" strokeWidth="1.5"/>
+                            <path d="M8 12L11 15L16 9" stroke="#464B55" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          <span className="text-sm text-[#212327]">{msg}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Recommended Formats */}
+                <div className="border border-[#E8ECF3] rounded-2xl p-6 flex flex-col gap-4">
+                  <div className="flex justify-end">
+                    <span className="text-xs font-medium text-[#25582E] bg-[#C9F3D1] px-2 py-1 rounded">{local.confidence}</span>
+                  </div>
+                  <h3 className="text-base font-medium text-[#212327] m-0">Recommended Formats</h3>
+                  <div className="flex flex-col gap-2">
+                    {(local.creativeBrief?.recommendedFormats || ['Short-form video (15-30s)', 'Static image carousel', 'UGC-style content']).map((fmt, idx) => (
+                      <div key={idx} className="flex items-center gap-4">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
+                          <rect x="3" y="5" width="14" height="14" rx="2" stroke="#464B55" strokeWidth="1.5"/>
+                          <path d="M10 12L13 10V14L10 12Z" stroke="#464B55" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        <span className="text-sm text-[#212327]">{fmt}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {local.cta && (
+                    <>
+                      <div className="h-px bg-[#DCE1EA] my-2" />
+                      <div>
+                        <div className="text-xs font-semibold text-gray-500 uppercase mb-2">CTA</div>
+                        <span className="text-sm font-medium text-gray-900">{local.cta}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Visual Style */}
+              <div className="border border-[#E8ECF3] rounded-2xl p-6 flex flex-col gap-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-base font-medium text-[#212327] m-0">Visual Style</h3>
+                  <span className="text-xs font-medium text-[#25582E] bg-[#C9F3D1] px-2 py-1 rounded">{local.confidence}</span>
+                </div>
+                <p className="text-sm text-[#464B55] m-0 leading-relaxed">
+                  {local.variant === 'aggressive'
+                    ? 'Bold, attention-grabbing visuals with high contrast and dynamic motion. Emphasis on trend-forward content that stops the scroll.'
+                    : local.variant === 'conservative'
+                      ? 'Clean, conversion-focused imagery with clear product visibility. Emphasis on trust signals and direct response layouts.'
+                      : 'Modern, clean aesthetic with bold product focus. Balanced between brand building and performance-driven creative.'}
                 </p>
               </div>
-              {blueprint.cta && (
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 uppercase mb-2">CTA</div>
-                  <span className="text-sm font-medium text-gray-900">{blueprint.cta}</span>
-                </div>
+
+              {/* Fatigue Risk & Refresh Plan */}
+              {local.creativeBrief?.fatigueRisk && local.creativeBrief.fatigueRisk.length > 0 && (
+                <>
+                  <div className="h-px bg-[#DCE1EA]" />
+                  <div className="flex flex-col gap-4">
+                    <h3 className="text-base font-medium text-[#212327] m-0">Fatigue Risk</h3>
+                    <div className="flex flex-col gap-2">
+                      {local.creativeBrief.fatigueRisk.map((risk, idx) => (
+                        <div key={idx} className="flex items-center gap-4">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
+                            <circle cx="12" cy="12" r="10" stroke="#CBD1DB" strokeWidth="1.5"/>
+                            <path d="M8 12L11 15L16 9" stroke="#464B55" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          <span className="text-sm text-[#212327]">{risk}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
-              {blueprint.creativeBrief?.recommendedFormats && blueprint.creativeBrief.recommendedFormats.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Recommended Formats</div>
-                  <div className="flex flex-col gap-1">
-                    {blueprint.creativeBrief.recommendedFormats.map((fmt, idx) => (
-                      <span key={idx} className="text-sm text-gray-600">• {fmt}</span>
+              {local.creativeBrief?.refreshPlan && local.creativeBrief.refreshPlan.length > 0 && (
+                <div className="flex flex-col gap-4">
+                  <h3 className="text-base font-medium text-[#212327] m-0">Refresh & Testing Plan</h3>
+                  <div className="flex flex-col gap-2">
+                    {local.creativeBrief.refreshPlan.map((plan, idx) => (
+                      <div key={idx} className="flex items-center gap-4">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="flex-shrink-0">
+                          <circle cx="12" cy="12" r="10" stroke="#CBD1DB" strokeWidth="1.5"/>
+                          <path d="M8 12L11 15L16 9" stroke="#464B55" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        <span className="text-sm text-[#212327]">{plan}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
+              {editingSection === 'Creative Brief' && (
+                <div className="flex gap-2 justify-end mt-2">
+                  <button onClick={() => { setEditingSection(null); setEditDraft({}); }} className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-[13px] text-gray-700 cursor-pointer hover:bg-gray-50">Cancel</button>
+                  <button onClick={() => handleSectionSave('Creative Brief')} className="px-3.5 py-1.5 bg-[#212327] border-none rounded-lg text-[13px] text-white cursor-pointer hover:bg-gray-700">Save</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Timeline Section */}
+          <div className="bg-white rounded-xl p-6 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 m-0">Timeline</h2>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-sm font-medium text-[#212327]">Estimated Time to Launch:</span>
+                <span className="text-sm text-[#464B55]">7-10 business days</span>
+              </div>
+            </div>
+            <div className="relative w-full h-[238px] bg-white border border-[#E8ECF3] rounded-xl overflow-hidden">
+              {/* Month labels */}
+              <div className="absolute top-0 left-0 w-full flex">
+                {(() => {
+                  const start = briefData?.timelineStart;
+                  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+                  let startIdx = 0;
+                  if (start) {
+                    const d = new Date(start);
+                    if (!isNaN(d.getTime())) startIdx = d.getMonth();
+                    else { const m = months.findIndex(m => start.toUpperCase().includes(m)); if (m >= 0) startIdx = m; }
+                  }
+                  return months.slice(startIdx, startIdx + 6).map((m) => (
+                    <div key={m} className="flex-1 border-l border-[#B6BDC9] py-2 pl-2 text-xs font-semibold text-[#636A77] uppercase tracking-wide">{m}</div>
+                  ));
+                })()}
+              </div>
+              {/* Phase bars */}
+              {[
+                { label: 'Pre-Launch Readiness', color: '#FFF1BA', left: '5%', width: '20%', top: 54 },
+                { label: 'Audience Warm-up', color: '#E9F388', left: '15%', width: '18%', top: 86 },
+                { label: 'Qualification & Scale', color: '#D3D8FF', left: '25%', width: '25%', top: 118 },
+                { label: 'Optimization & Retargeting', color: '#C1E8FF', left: '40%', width: '35%', top: 150 },
+                { label: 'Cost-to-Funnel', color: '#FFC1F7', left: '70%', width: '20%', top: 182 },
+              ].map((phase) => (
+                <div key={phase.label} className="absolute flex items-center justify-center rounded-lg overflow-hidden p-2" style={{ top: phase.top, left: phase.left, width: phase.width, background: phase.color }}>
+                  <span className="text-xs text-[#464B55] text-center whitespace-nowrap overflow-hidden text-ellipsis">{phase.label}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -678,33 +1332,16 @@ export const BlueprintDetailView: React.FC<BlueprintDetailViewProps> = ({
           {showApprovalButtons && (
             <div className="flex items-center gap-3 justify-end">
               {onRegenerate && (
-                <button
-                  onClick={onRegenerate}
-                  className="px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50"
-                >
-                  Regenerate
-                </button>
+                <button onClick={onRegenerate} className="px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">Regenerate</button>
               )}
               {onModify && (
-                <button
-                  onClick={() => onModify('Please modify this plan')}
-                  className="px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50"
-                >
-                  Modify
-                </button>
+                <button onClick={() => onModify('Please modify this plan')} className="px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">Modify</button>
               )}
               {onApprove && !isApproved && (
-                <button
-                  onClick={onApprove}
-                  className="px-6 py-2.5 bg-green-600 border-none rounded-lg text-sm font-medium text-white cursor-pointer hover:bg-green-700"
-                >
-                  Approve Plan
-                </button>
+                <button onClick={onApprove} className="px-6 py-2.5 bg-green-600 border-none rounded-lg text-sm font-medium text-white cursor-pointer hover:bg-green-700">Approve Plan</button>
               )}
               {isApproved && (
-                <span className="px-4 py-2 bg-green-100 text-green-800 text-sm font-medium rounded-lg">
-                  Approved
-                </span>
+                <span className="px-4 py-2 bg-green-100 text-green-800 text-sm font-medium rounded-lg">Approved</span>
               )}
             </div>
           )}

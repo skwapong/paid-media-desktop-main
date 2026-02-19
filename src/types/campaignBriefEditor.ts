@@ -106,6 +106,7 @@ export const BRIEF_QUALITY_WEIGHTS: Record<string, { label: string; maxScore: nu
   budget: { label: 'Budget', maxScore: 15 },
   channels: { label: 'Channels', maxScore: 15 },
   targetAudience: { label: 'Target Audience', maxScore: 15 },
+  campaignScope: { label: 'Campaign Scope', maxScore: 5 },
   timeline: { label: 'Timeline', maxScore: 10 },
   kpis: { label: 'KPIs', maxScore: 10 },
 };
@@ -124,6 +125,7 @@ export const SECTION_CONFIGS: SectionConfig[] = [
   { key: 'businessObjective', title: 'Business Objective', subtitle: 'Why are we doing this?', type: 'tags' },
   { key: 'goals', title: 'Goals', subtitle: 'What success looks like', type: 'goals' },
   { key: 'successMetrics', title: 'Success Metrics', subtitle: 'How success is evaluated', type: 'metrics' },
+  { key: 'campaignScope', title: 'Campaign Scope', subtitle: "What's included vs excluded", type: 'scope' },
   { key: 'targetAudience', title: 'Target Audience', subtitle: 'Who this is for', type: 'audience' },
   { key: 'audienceSegments', title: 'Audience Segments', subtitle: 'Activation-ready segments powered by Audience Studio', type: 'audienceSegments' },
   { key: 'channels', title: 'Channels', subtitle: 'Where ads run', type: 'channels' },

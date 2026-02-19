@@ -74,12 +74,25 @@ function RightPanel({
 }) {
   const { blueprints, selectedBlueprintId, selectBlueprint } = useBlueprintStore();
   const briefData = useBriefEditorStore((s) => s.state.briefData);
+  const workflowState = useBriefEditorStore((s) => s.state.workflowState);
   const hasBriefData = briefData && (
     briefData.campaignDetails ||
     briefData.businessObjective ||
     briefData.primaryGoals.length > 0 ||
     briefData.mandatoryChannels.length > 0
   );
+
+  // Track whether the user has explicitly generated a plan this session
+  const [hasGeneratedPlan, setHasGeneratedPlan] = React.useState(false);
+
+  // When workflow transitions from 'generating' back to 'editing', blueprints are ready
+  const prevWorkflow = React.useRef(workflowState);
+  React.useEffect(() => {
+    if (prevWorkflow.current === 'generating' && workflowState === 'editing' && blueprints.length > 0) {
+      setHasGeneratedPlan(true);
+    }
+    prevWorkflow.current = workflowState;
+  }, [workflowState, blueprints.length]);
 
   const suspenseFallback = (
     <div className="flex-1 flex items-center justify-center p-8 bg-[#F7F8FB] border-l border-gray-200">
@@ -92,45 +105,8 @@ function RightPanel({
     </div>
   );
 
-  // Show blueprint detail view
-  if (selectedBlueprintId) {
-    const blueprint = blueprints.find((b) => b.id === selectedBlueprintId);
-    if (blueprint) {
-      return (
-        <ErrorBoundary>
-          <Suspense fallback={suspenseFallback}>
-            <div className="flex flex-col h-full bg-[#F7F8FB] border-l border-gray-200 overflow-y-auto">
-              <BlueprintDetailView
-                blueprint={blueprint}
-                onClose={() => selectBlueprint(null)}
-                editable={true}
-              />
-            </div>
-          </Suspense>
-        </ErrorBoundary>
-      );
-    }
-  }
-
-  // Show blueprints panel when blueprints exist
-  if (blueprints.length > 0) {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={suspenseFallback}>
-          <div className="flex flex-col h-full bg-[#F7F8FB] border-l border-gray-200 overflow-y-auto">
-            <CampaignBlueprintsPanel
-              blueprints={blueprints}
-              onSelectBlueprint={(bp) => selectBlueprint(bp.id)}
-              selectedBlueprintId={selectedBlueprintId || undefined}
-            />
-          </div>
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  // Show brief editor when brief data exists
-  if (hasBriefData) {
+  // 1. Show brief editor first when brief data exists and user hasn't generated a plan yet
+  if (hasBriefData && !hasGeneratedPlan && workflowState === 'editing') {
     return (
       <ErrorBoundary>
         <Suspense fallback={suspenseFallback}>
@@ -142,21 +118,102 @@ function RightPanel({
     );
   }
 
-  // Show loading state while streaming
+  // 2. Show blueprint detail view after plan generation
+  if (blueprints.length > 0 && (hasGeneratedPlan || workflowState !== 'editing')) {
+    const blueprint = selectedBlueprintId
+      ? blueprints.find((b) => b.id === selectedBlueprintId) || blueprints[0]
+      : blueprints[0];
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={suspenseFallback}>
+          <div className="flex flex-col h-full bg-[#F7F8FB] border-l border-gray-200 overflow-y-auto">
+            <BlueprintDetailView
+              blueprint={blueprint}
+              onClose={() => { setHasGeneratedPlan(false); selectBlueprint(null); }}
+              editable={true}
+              briefData={briefData}
+              onSendToChat={onSendToChat}
+              onUpdate={(updated) => {
+                useBlueprintStore.getState().updateBlueprint(updated.id, updated);
+              }}
+            />
+          </div>
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  // Show loading state while streaming — animated brief extraction card
   if (isStreaming) {
     return (
-      <div className="flex flex-col h-full bg-[#F7F8FB] border-l border-gray-200">
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center">
-            <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <Sparkles className="w-6 h-6 text-blue-400 animate-pulse" />
+      <div className="flex flex-col h-full bg-[#F7F8FB] border-l border-gray-200 overflow-hidden">
+        <style>{`
+          @keyframes eFadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+          @keyframes ePulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+          @keyframes eBar { 0% { width: 0%; } 100% { width: var(--target-width, 100%); } }
+          @keyframes eCheckPop { 0% { opacity: 0; transform: scale(0); } 70% { transform: scale(1.3); } 100% { opacity: 1; transform: scale(1); } }
+          @keyframes eRingPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(81,162,255,0.4); } 50% { box-shadow: 0 0 0 5px rgba(81,162,255,0); } }
+        `}</style>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-[360px]">
+            <div
+              className="bg-[#E8ECF3] border border-[#E5E7EB] rounded-[10px] p-4 flex flex-col gap-3"
+              style={{ animation: 'eFadeUp 0.5s ease-out both' }}
+            >
+              {/* Step badge */}
+              <div
+                className="w-6 h-6 rounded-full bg-[#51A2FF] flex items-center justify-center text-xs font-semibold text-white"
+                style={{ animation: 'eRingPulse 2s ease-in-out infinite' }}
+              >1</div>
+
+              <p className="text-sm font-semibold text-[#0A0A0F] m-0 leading-5">
+                Understanding your campaign brief
+              </p>
+              <p className="text-xs text-[#4A5565] m-0 leading-4">
+                Analyzing your goals, target audience, budget constraints, and key performance indicators to build a comprehensive blueprint.
+              </p>
+
+              {/* Progress bars card */}
+              <div
+                className="bg-white border border-[#E5E7EB] rounded-[10px] p-3.5 flex flex-col gap-2 shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                style={{ animation: 'eFadeUp 0.4s ease-out 0.3s both' }}
+              >
+                {[
+                  { delay: '0.5s', checkDelay: '1.5s', width: '100%' },
+                  { delay: '1.2s', checkDelay: '2.2s', width: '100%' },
+                  { delay: '1.9s', checkDelay: '2.9s', width: '100%' },
+                  { delay: '2.6s', checkDelay: '0s', width: '70%', active: true },
+                  { delay: '0s', checkDelay: '0s', width: '0%', pending: true },
+                ].map((r, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    {'active' in r && r.active ? (
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-[#51A2FF] shrink-0" style={{ animation: 'ePulse 1.5s ease-in-out infinite' }} />
+                    ) : 'pending' in r && r.pending ? (
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-[#D1D5DC] shrink-0" />
+                    ) : (
+                      <div className="w-3.5 h-3.5 shrink-0" style={{ animation: `eCheckPop 0.3s ease-out ${r.checkDelay} both` }}>
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <circle cx="7" cy="7" r="6" fill="#22C55E"/>
+                          <path d="M4.5 7L6 8.5L9.5 5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                    )}
+                    <div className="flex-1 h-1.5 bg-[#E5E7EB] rounded-full overflow-hidden">
+                      {!('pending' in r && r.pending) && (
+                        <div
+                          className="h-full bg-[#51A2FF] rounded-full"
+                          style={{
+                            '--target-width': r.width,
+                            animation: `eBar 1.2s ease-out ${r.delay} both`,
+                            ...('active' in r && r.active ? { opacity: 0.7 } : {}),
+                          } as React.CSSProperties}
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <h3 className="text-base font-semibold text-gray-700 mb-2">
-              Analyzing your brief...
-            </h3>
-            <p className="text-sm text-gray-400">
-              The AI is extracting campaign details and building your brief.
-            </p>
           </div>
         </div>
       </div>
@@ -189,7 +246,7 @@ function RightPanel({
 const CampaignChatPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Extract query params
   const briefParam = searchParams.get('brief') || '';
@@ -230,8 +287,14 @@ const CampaignChatPage = () => {
   const [chatHistoryFilter, setChatHistoryFilter] = useState('');
   const [chatHistoryDateFilter, setChatHistoryDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | '30days'>('all');
 
-  // Toast state
+  // Toast state with auto-dismiss
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'success') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, type });
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  }, []);
 
   // Resizable panel state
   const [chatPanelWidth, setChatPanelWidth] = useState(33);
@@ -512,7 +575,6 @@ const CampaignChatPage = () => {
 
   const handleNewChat = () => {
     setCurrentSessionId(undefined);
-    setMessages([]);
     setBriefFields({
       budget: false,
       objective: false,
@@ -524,13 +586,53 @@ const CampaignChatPage = () => {
       pacing: false,
       creativeMix: false,
     });
+
+    // Clear input and attached files
+    setInputValue('');
+    setAttachedFiles([]);
+
+    // Clear URL params so auto-send useEffect doesn't re-fire with old brief/file
+    setSearchParams({}, { replace: true });
+
+    // Clear any pending file data from sessionStorage
+    sessionStorage.removeItem('pendingFileData');
+
+    // Reset chat session
     resetChat();
+
+    // Reset brief editor to empty state
+    useBriefEditorStore.getState().setBriefData({
+      campaignDetails: '',
+      brandProduct: '',
+      businessObjective: '',
+      businessObjectiveTags: [],
+      primaryGoals: [],
+      secondaryGoals: [],
+      primaryKpis: [],
+      secondaryKpis: [],
+      inScope: [],
+      outOfScope: [],
+      primaryAudience: [],
+      secondaryAudience: [],
+      mandatoryChannels: [],
+      optionalChannels: [],
+      budgetAmount: '',
+      pacing: '',
+      phases: '',
+      prospectingSegments: [],
+      retargetingSegments: [],
+      suppressionSegments: [],
+      timelineStart: '',
+      timelineEnd: '',
+    });
+    useBriefEditorStore.getState().setWorkflowState('editing');
+
+    // Clear blueprints
+    useBlueprintStore.getState().clearAll();
+
+    // Start fresh session
     setChatSessionReady(false);
-    const initNewChat = async () => {
-      const success = await startSession();
-      setChatSessionReady(true);
-    };
-    initNewChat();
+    startSession().then(() => setChatSessionReady(true));
   };
 
   // ---- File handling ----
@@ -570,13 +672,13 @@ const CampaignChatPage = () => {
             setAttachedFiles((prev) =>
               prev.map((f) => (f.id === attachedFile.id ? { ...f, base64Data: result.text, preview: attachedFile.preview } : f))
             );
-            setToast({ message: `PDF text extracted from ${file.name}`, type: 'success' });
+            showToast( `PDF text extracted from ${file.name}`, 'success');
           } else {
-            setToast({ message: result.error || 'Failed to extract PDF text', type: 'warning' });
+            showToast( result.error || 'Failed to extract PDF text', 'warning');
           }
         } catch (err) {
           console.error('PDF extraction failed:', err);
-          setToast({ message: 'PDF extraction failed', type: 'warning' });
+          showToast( 'PDF extraction failed', 'warning');
         }
       }
     }
@@ -735,7 +837,7 @@ const CampaignChatPage = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     setShowExportMenu(false);
-    setToast({ message: 'Chat exported as TXT', type: 'success' });
+    showToast( 'Chat exported as TXT', 'success');
   }, [storeMessages]);
 
   // ---- Render ----

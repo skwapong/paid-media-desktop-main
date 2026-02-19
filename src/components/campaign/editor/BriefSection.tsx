@@ -45,6 +45,9 @@ const CHANNEL_LOGOS: Record<string, string> = {
   'Spotify Ads': '/assets/spotify-ads.svg',
   'Amazon Ads': '/assets/amazon-ads.svg',
   'Apple Search Ads': '/assets/apple-search-ads.svg',
+  'Reddit Ads': '/assets/reddit-ads.svg',
+  'Google Display Network': '/assets/google-display.svg',
+  'Google Display Network (GDN)': '/assets/google-display.svg',
 };
 
 // Channel brand colors
@@ -60,6 +63,9 @@ const CHANNEL_BRANDS: Record<string, { bg: string }> = {
   'LinkedIn Ads': { bg: '#0A66C2' },
   'Pinterest Ads': { bg: '#E60023' },
   'X Ads': { bg: '#000000' },
+  'Reddit Ads': { bg: '#FF4500' },
+  'Google Display Network': { bg: '#34A853' },
+  'Google Display Network (GDN)': { bg: '#34A853' },
 };
 
 // Available digital ad platforms for quick selection
@@ -68,7 +74,7 @@ const AD_PLATFORMS = [
   'Google Shopping', 'YouTube', 'YouTube Shorts', 'TikTok Ads',
   'LinkedIn Ads', 'Snapchat Ads', 'Pinterest Ads', 'X Ads',
   'Programmatic', 'Connected TV', 'Spotify Ads', 'Amazon Ads',
-  'Apple Search Ads',
+  'Apple Search Ads', 'Reddit Ads', 'Google Display Network (GDN)',
 ];
 
 // Input class shared by all editable fields
@@ -193,7 +199,7 @@ function getSectionDataSummary(key: SectionKey, data: CampaignBriefData): string
     case 'successMetrics': return [...data.primaryKpis, ...data.secondaryKpis].join(', ') || '(empty)';
     case 'campaignScope': return [...data.inScope, ...data.outOfScope].join(', ') || '(empty)';
     case 'targetAudience': return [...data.primaryAudience, ...data.secondaryAudience].join(', ') || '(empty)';
-    case 'audienceSegments': return [...data.prospectingSegments, ...data.retargetingSegments, ...data.suppressionSegments].join(', ') || '(empty)';
+    case 'audienceSegments': return normalizeSegmentItems([...data.prospectingSegments, ...data.retargetingSegments, ...data.suppressionSegments]).join(', ') || '(empty)';
     case 'channels': return [...data.mandatoryChannels, ...data.optionalChannels].join(', ') || '(empty)';
     case 'budget': return [data.budgetAmount, data.pacing, data.phases].filter(Boolean).join(', ') || '(empty)';
     case 'timeline': return [data.timelineStart, data.timelineEnd].filter(Boolean).join(' – ') || '(empty)';
@@ -618,13 +624,57 @@ function SectionContent({
     );
   }
 
-  // Audience section
+  // Audience section — text descriptions (not tag chips)
   if (config.type === 'audience') {
+    const primary = (briefData.primaryAudience as string[]) || [];
+    const secondary = (briefData.secondaryAudience as string[]) || [];
+
+    if (sectionState === 'editing') {
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <p className="text-sm font-medium text-[#212327] m-0">Primary Persona</p>
+            <textarea
+              value={primary.join('\n')}
+              onChange={(e) => onUpdateData({ primaryAudience: e.target.value.split('\n').filter(Boolean) })}
+              rows={3}
+              placeholder="Describe primary target audience..."
+              className="w-full p-3 border border-gray-200 rounded-lg text-sm text-[#212327] resize-y outline-none focus:border-[#6F2EFF] placeholder:text-[#9BA2AF]"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <p className="text-sm font-medium text-[#212327] m-0">Secondary</p>
+            <textarea
+              value={secondary.join('\n')}
+              onChange={(e) => onUpdateData({ secondaryAudience: e.target.value.split('\n').filter(Boolean) })}
+              rows={3}
+              placeholder="Describe secondary target audience..."
+              className="w-full p-3 border border-gray-200 rounded-lg text-sm text-[#212327] resize-y outline-none focus:border-[#6F2EFF] placeholder:text-[#9BA2AF]"
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (primary.length === 0 && secondary.length === 0) {
+      return <p className="text-sm text-[#9BA2AF] italic m-0">Add target audience...</p>;
+    }
+
     return (
-      <DualTagList
-        label1="Primary" items1={(briefData.primaryAudience as string[]) || []} key1="primaryAudience" placeholder1="Add primary audience..."
-        label2="Secondary" items2={(briefData.secondaryAudience as string[]) || []} key2="secondaryAudience" placeholder2="Add secondary audience..."
-      />
+      <div className="flex flex-col gap-4">
+        {primary.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-[#212327] m-0">Primary Persona</p>
+            <p className="text-sm text-[#464B55] m-0 leading-relaxed whitespace-pre-wrap">{primary.join('\n')}</p>
+          </div>
+        )}
+        {secondary.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-[#212327] m-0">Secondary</p>
+            <p className="text-sm text-[#464B55] m-0 leading-relaxed whitespace-pre-wrap">{secondary.join('\n')}</p>
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -998,6 +1048,15 @@ interface TDSegmentOption {
   parentName?: string;
 }
 
+// Normalize segment items: AI may return objects {name, ...} instead of strings
+function normalizeSegmentItems(items: unknown[]): string[] {
+  return items.map((item) => {
+    if (typeof item === 'string') return item;
+    if (item && typeof item === 'object' && 'name' in item) return String((item as { name: unknown }).name);
+    return String(item);
+  });
+}
+
 function AudienceSegmentsContent({
   briefData,
   sectionState,
@@ -1076,9 +1135,9 @@ function AudienceSegmentsContent({
   };
 
   const SEGMENT_CATEGORIES = [
-    { label: 'Prospecting Segments', dataKey: 'prospectingSegments', items: (briefData.prospectingSegments as string[]) || [] },
-    { label: 'Retargeting Segments', dataKey: 'retargetingSegments', items: (briefData.retargetingSegments as string[]) || [] },
-    { label: 'Suppression Segments', dataKey: 'suppressionSegments', items: (briefData.suppressionSegments as string[]) || [] },
+    { label: 'Prospecting Segments', dataKey: 'prospectingSegments', items: normalizeSegmentItems((briefData.prospectingSegments as unknown[]) || []) },
+    { label: 'Retargeting Segments', dataKey: 'retargetingSegments', items: normalizeSegmentItems((briefData.retargetingSegments as unknown[]) || []) },
+    { label: 'Suppression Segments', dataKey: 'suppressionSegments', items: normalizeSegmentItems((briefData.suppressionSegments as unknown[]) || []) },
   ];
 
   return (

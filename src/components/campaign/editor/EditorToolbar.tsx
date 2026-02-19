@@ -20,10 +20,31 @@ export default function EditorToolbar({ onGeneratePlan }: EditorToolbarProps) {
     const wasOn = state.showAISuggestions;
     toggleAISuggestions();
 
-    // When toggling ON, send a review request
+    // When toggling ON, send a review request that produces brief-update-json
     if (!wasOn) {
       const briefJson = JSON.stringify(state.briefData, null, 2);
-      const message = `Review my campaign brief and suggest specific improvements for any sections that could be stronger. Focus on making weak or empty sections actionable. Current brief:\n\`\`\`json\n${briefJson}\n\`\`\``;
+      const message = [
+        'Review my campaign brief below and suggest concrete improvements.',
+        'For EVERY section that could be stronger, provide updated values.',
+        'Include improvements for as many sections as possible — especially any that are empty or weak.',
+        '',
+        'IMPORTANT: You MUST output your suggestions inside a brief-update-json code fence.',
+        'Include only the fields you want to improve. Example:',
+        '',
+        '```brief-update-json',
+        '{',
+        '  "primaryGoals": ["Achieve 4:1 ROAS within 30 days", "Drive 10K conversions"],',
+        '  "primaryKpis": ["ROAS", "CPA", "Conversion Rate"],',
+        '  "inScope": ["US market", "Google Search", "Meta Ads"],',
+        '  "outOfScope": ["Organic social", "Email marketing"]',
+        '}',
+        '```',
+        '',
+        'Current brief:',
+        '```json',
+        briefJson,
+        '```',
+      ].join('\n');
 
       useBriefEditorStore.getState().setAISuggestionsLoading(true);
       useBriefEditorStore.getState().setPendingSuggestionRequest(true);

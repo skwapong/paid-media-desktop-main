@@ -62,7 +62,21 @@ export const useBlueprintStore = create<BlueprintState>((set, get) => ({
     set((state) => {
       const updated = [...state.blueprints, ...withMeta];
       saveToStorage(updated);
-      return { blueprints: updated };
+
+      // Auto-select the best blueprint: prefer "balanced" variant, then highest confidence
+      const confidenceRank = { High: 3, Medium: 2, Low: 1 };
+      const best = [...withMeta].sort((a, b) => {
+        // Prefer balanced variant
+        if (a.variant === 'balanced' && b.variant !== 'balanced') return -1;
+        if (b.variant === 'balanced' && a.variant !== 'balanced') return 1;
+        // Then by confidence
+        return (confidenceRank[b.confidence] || 0) - (confidenceRank[a.confidence] || 0);
+      })[0];
+
+      return {
+        blueprints: updated,
+        selectedBlueprintId: best?.id || withMeta[0]?.id || state.selectedBlueprintId,
+      };
     });
   },
 

@@ -224,7 +224,12 @@ export default function CampaignLandingPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div
+      className="h-full overflow-y-auto"
+      style={{
+        background: 'linear-gradient(0deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.30) 100%), url(/assets/background.png) lightgray 50% / cover no-repeat',
+      }}
+    >
       <div className="max-w-3xl mx-auto px-6 py-16 flex flex-col items-center">
         {/* Hero Section */}
         <div className="text-center mb-10">

@@ -654,6 +654,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 successMetrics: ['primaryKpis', 'secondaryKpis'],
                 campaignScope: ['inScope', 'outOfScope'],
                 targetAudience: ['primaryAudience', 'secondaryAudience'],
+                audienceSegments: ['prospectingSegments', 'retargetingSegments', 'suppressionSegments'],
                 channels: ['mandatoryChannels', 'optionalChannels'],
                 budget: ['budgetAmount', 'pacing', 'phases'],
                 timeline: ['timelineStart', 'timelineEnd'],
@@ -663,14 +664,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 if (changedKeys.length > 0) {
                   const updates: Record<string, unknown> = {};
                   changedKeys.forEach((dk) => { updates[dk] = normalizedData[dk]; });
+                  // Determine if this is a minor tweak or a major suggestion
+                  const currentBrief = editorState.state.briefData as unknown as Record<string, unknown>;
+                  const sectionHasContent = dataKeys.some((dk) => {
+                    const val = currentBrief[dk];
+                    if (Array.isArray(val)) return val.length > 0;
+                    return !!val;
+                  });
+                  const isMinor = sectionHasContent && changedKeys.length <= 2;
+
+                  // Build a human-readable description of the suggested changes
+                  const friendlyNames: Record<string, string> = {
+                    campaignDetails: 'campaign details', brandProduct: 'brand/product',
+                    businessObjective: 'objective', businessObjectiveTags: 'objective tags',
+                    primaryGoals: 'primary goals', secondaryGoals: 'secondary goals',
+                    primaryKpis: 'primary KPIs', secondaryKpis: 'secondary KPIs',
+                    inScope: 'in-scope items', outOfScope: 'out-of-scope items',
+                    primaryAudience: 'primary audience', secondaryAudience: 'secondary audience',
+                    mandatoryChannels: 'mandatory channels', optionalChannels: 'optional channels',
+                    budgetAmount: 'budget', pacing: 'pacing', phases: 'phases',
+                    timelineStart: 'start date', timelineEnd: 'end date',
+                  };
+                  const previewParts = changedKeys.map((dk) => {
+                    const val = normalizedData[dk];
+                    const preview = Array.isArray(val)
+                      ? val.slice(0, 3).join(', ') + (val.length > 3 ? ` +${val.length - 3} more` : '')
+                      : String(val).slice(0, 80) + (String(val).length > 80 ? '...' : '');
+                    return `${friendlyNames[dk] || dk}: ${preview}`;
+                  });
+                  const description = isMinor
+                    ? `Update ${previewParts.join(' and ')}`
+                    : `Add ${previewParts.join('; ')}`;
+
                   suggestions[sectionKey] = {
                     sectionKey,
-                    title: 'Suggested improvement',
-                    description: changedKeys.map((dk) => {
-                      const val = normalizedData[dk];
-                      return Array.isArray(val) ? val.join(', ') : String(val);
-                    }).join(' | '),
-                    isMinor: changedKeys.length === 1,
+                    title: isMinor ? 'Try a small change' : 'Suggested',
+                    description,
+                    isMinor,
                     suggestedUpdates: updates,
                   };
                 }
@@ -745,6 +775,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // Reset editor workflow from 'generating' back to 'editing'
             useBriefEditorStore.getState().setWorkflowState('editing');
             if (runId) trace.addEvent(runId, 'ui_update', 'Blueprint variants generated');
+            break;
+          }
+          case 'media-mix': {
+            // Apply media mix recommendation to the selected blueprint
+            const mixData = skillResult.data as { channels?: Array<{ name: string; role: string; percentage: number; rationale: string }>; strategy?: string };
+            if (mixData.channels && mixData.channels.length > 0) {
+              const selectedId = useBlueprintStore.getState().selectedBlueprintId;
+              if (selectedId) {
+                const channelNames = mixData.channels.map(ch => ch.name);
+                useBlueprintStore.getState().updateBlueprint(selectedId, { channels: channelNames });
+                // Store the full mix data for the detail view to pick up
+                const bp = useBlueprintStore.getState().getBlueprint(selectedId);
+                if (bp) {
+                  // Trigger re-render by updating with media mix metadata
+                  useBlueprintStore.getState().updateBlueprint(selectedId, {
+                    channels: channelNames,
+                  });
+                }
+              }
+              // Also emit a custom event so BlueprintDetailView can apply allocations
+              window.dispatchEvent(new CustomEvent('media-mix-update', { detail: mixData }));
+            }
+            if (runId) trace.addEvent(runId, 'ui_update', 'Media mix recommendation applied to blueprint');
             break;
           }
           default: {

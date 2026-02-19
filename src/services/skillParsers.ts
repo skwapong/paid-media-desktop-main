@@ -188,6 +188,25 @@ export interface BudgetAllocationOutput {
 }
 export const parseBudgetAllocation = createCodeFenceParser<BudgetAllocationOutput>('budget-allocation-json');
 
+/** Skill: Media mix recommendations */
+export interface MediaMixOutput {
+  channels: Array<{
+    name: string;
+    role: string;
+    percentage: number;
+    rationale: string;
+  }>;
+  removedChannels?: Array<{ name: string; reason: string }>;
+  addedChannels?: Array<{ name: string; reason: string }>;
+  strategy?: string;
+  expectedImpact?: {
+    reach?: string;
+    efficiency?: string;
+    confidence?: string;
+  };
+}
+export const parseMediaMix = createCodeFenceParser<MediaMixOutput>('media-mix-json');
+
 /** Skill 15: A/B test recommendations */
 export interface ABTestsOutput {
   recommendations: Array<{
@@ -255,6 +274,7 @@ export const SKILL_PARSERS = [
   { name: 'attribution', parse: parseAttribution },
   { name: 'benchmark', parse: parseBenchmark },
   { name: 'budget-allocation', parse: parseBudgetAllocation },
+  { name: 'media-mix', parse: parseMediaMix },
   { name: 'ab-tests', parse: parseABTests },
   { name: 'optimization-actions', parse: parseOptimizationActions },
   { name: 'clone-campaign', parse: parseCloneCampaign },
