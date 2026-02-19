@@ -174,11 +174,7 @@ export default function Layout() {
       <div
         className="flex-1 flex flex-col overflow-hidden noise-bg"
         style={{
-          background: `
-            radial-gradient(ellipse 80% 80% at -10% 100%, rgba(248,180,160,0.7) 0%, rgba(248,180,160,0.3) 40%, rgba(248,180,160,0) 70%),
-            radial-gradient(ellipse 70% 90% at 110% 100%, rgba(120,220,232,0.6) 0%, rgba(120,220,232,0.3) 40%, rgba(120,220,232,0) 70%),
-            linear-gradient(135deg, #fdf4f0 0%, #f9f9f9 40%, #f4fafa 60%, #eefbfb 100%)
-          `
+          background: `url('/bg-gradient.svg') center/cover no-repeat`
         }}
       >
         {/* Top Navigation Bar - draggable for window movement */}
