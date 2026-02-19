@@ -963,10 +963,18 @@ export default function UnifiedViewDashboard() {
       {!isChatOpen && (
         <button
           onClick={() => setIsChatOpen(true)}
-          className="shrink-0 self-start mt-2 w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 hover:from-blue-600 hover:to-violet-600 shadow-lg shadow-blue-500/20 transition-all cursor-pointer border-none group"
+          className="shrink-0 self-start mt-2 w-10 h-10 flex items-center justify-center rounded-xl bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] transition-all cursor-pointer border border-gray-100 group"
           title="Open AI Assistant"
         >
-          <MessageSquare className="w-5 h-5 text-white" />
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24">
+            <defs>
+              <linearGradient id="chatBtnGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#4BC8FE" />
+                <stop offset="100%" stopColor="#94D056" />
+              </linearGradient>
+            </defs>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} stroke="url(#chatBtnGradient)" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
         </button>
       )}
 
